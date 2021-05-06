@@ -271,8 +271,8 @@ def test(model, queryloader, galleryloader, pool, use_gpu, ranks=[1, 5, 10, 20])
 
     # 用于测试
     mm, nn = distmat.shape[0], distmat.shape[1]
-    print("mm is ",mm)
-    print("nn is ",nn)
+    print("number of view1 is ",mm)
+    print("number of view2 is ",nn)
     min = [1, 1, 1, 1, 1, 1, 1, 1]  # min数组的大小应该等于mm
     num = 0
     for i in range(mm):
@@ -283,7 +283,7 @@ def test(model, queryloader, galleryloader, pool, use_gpu, ranks=[1, 5, 10, 20])
         if min[i] < 3.5:
             # print("min[i] is",min[i])
             num += 1
-    print('各图像之间的相似度为：\n', 1 - distmat)
+    # print('各图像之间的相似度为：\n', 1 -  distmat)
     print('经多视角识别后的person_num为:', num)
 
     print("Computing CMC and mAP")
