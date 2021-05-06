@@ -24,9 +24,11 @@ from utils import AverageMeter, Logger, save_checkpoint
 from eval_metrics import evaluate
 from samplers import RandomIdentitySampler
 
+from IPython import embed
+
 parser = argparse.ArgumentParser(description='Train video model with cross entropy loss')
 # Datasets
-parser.add_argument('-d', '--dataset', type=str, default='mars',
+parser.add_argument('-d', '--dataset', type=str, default='ilidsvid',
                     choices=data_manager.get_names())
 parser.add_argument('-j', '--workers', default=4, type=int,
                     help="number of data loading workers (default: 4)")
@@ -36,7 +38,7 @@ parser.add_argument('--width', type=int, default=112,
                     help="width of an image (default: 112)")
 parser.add_argument('--seq-len', type=int, default=4, help="number of images to sample in a tracklet")
 # Optimization options
-parser.add_argument('--max-epoch', default=800, type=int,
+parser.add_argument('--max-epoch', default=10, type=int,
                     help="maximum epochs to run")
 parser.add_argument('--start-epoch', default=0, type=int,
                     help="manual epoch number (useful on restarts)")
@@ -95,12 +97,12 @@ def main():
     print("Initializing dataset {}".format(args.dataset))
     dataset = data_manager.init_dataset(name=args.dataset)
 
-    transform_train = T.Compose([
-        T.Random2DTranslation(args.height, args.width),
-        T.RandomHorizontalFlip(),
-        T.ToTensor(),
-        T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-    ])
+    # transform_train = T.Compose([
+    #     T.Random2DTranslation(args.height, args.width),
+    #     T.RandomHorizontalFlip(),
+    #     T.ToTensor(),
+    #     T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+    # ])
 
     transform_test = T.Compose([
         T.Resize((args.height, args.width)),
@@ -111,21 +113,24 @@ def main():
     pin_memory = True if use_gpu else False
 
 
-    trainloader = DataLoader(
-        VideoDataset(dataset.train, seq_len=args.seq_len, sample='random',transform=transform_train),
-        sampler=RandomIdentitySampler(dataset.train, num_instances=args.num_instances),
-        batch_size=args.train_batch, num_workers=args.workers,
-        pin_memory=pin_memory, drop_last=True,
-    )
+    # embed()
+    # trainloader = DataLoader(
+    #     VideoDataset(dataset.train, seq_len=args.seq_len, sample='random',transform=transform_train),
+    #     sampler=RandomIdentitySampler(dataset.train, num_instances=args.num_instances),
+    #     batch_size=args.train_batch, num_workers=args.workers,
+    #     pin_memory=pin_memory, drop_last=True,
+    # )
 
     queryloader = DataLoader(
-        VideoDataset(dataset.query, seq_len=args.seq_len, sample='dense', transform=transform_test),
+        VideoDataset(dataset.query, seq_len=args.seq_len, sample='random', transform=transform_test),
         batch_size=args.test_batch, shuffle=False, num_workers=args.workers,
         pin_memory=pin_memory, drop_last=False,
     )
 
+    # embed()
+
     galleryloader = DataLoader(
-        VideoDataset(dataset.gallery, seq_len=args.seq_len, sample='dense', transform=transform_test),
+        VideoDataset(dataset.gallery, seq_len=args.seq_len, sample='random', transform=transform_test),
         batch_size=args.test_batch, shuffle=False, num_workers=args.workers,
         pin_memory=pin_memory, drop_last=False,
     )
@@ -142,11 +147,12 @@ def main():
             if 'fc' in key: continue
             state_dict[key.partition("module.")[2]] = checkpoint['state_dict'][key]
         model.load_state_dict(state_dict, strict=False)
+    ### 使用resnet50tp
     else:
-        model = models.init_model(name=args.arch, num_classes=dataset.num_train_pids, loss={'xent', 'htri'})
+        model = models.init_model(name=args.arch, num_classes=150, loss={'xent', 'htri'})
     print("Model size: {:.5f}M".format(sum(p.numel() for p in model.parameters())/1000000.0))
 
-    criterion_xent = CrossEntropyLabelSmooth(num_classes=dataset.num_train_pids, use_gpu=use_gpu)
+    criterion_xent = CrossEntropyLabelSmooth(num_classes=150, use_gpu=use_gpu)
     criterion_htri = TripletLoss(margin=args.margin)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
@@ -157,41 +163,9 @@ def main():
     if use_gpu:
         model = nn.DataParallel(model).cuda()
 
-    if args.evaluate:
-        print("Evaluate only")
-        test(model, queryloader, galleryloader, args.pool, use_gpu)
-        return
+    test(model, queryloader, galleryloader, args.pool, use_gpu)
 
-    start_time = time.time()
-    best_rank1 = -np.inf
-    if args.arch=='resnet503d':
-        torch.backends.cudnn.benchmark = False
-    for epoch in range(start_epoch, args.max_epoch):
-        print("==> Epoch {}/{}".format(epoch+1, args.max_epoch))
-        
-        train(model, criterion_xent, criterion_htri, optimizer, trainloader, use_gpu)
-        
-        if args.stepsize > 0: scheduler.step()
-        
-        if args.eval_step > 0 and (epoch+1) % args.eval_step == 0 or (epoch+1) == args.max_epoch:
-            print("==> Test")
-            rank1 = test(model, queryloader, galleryloader, args.pool, use_gpu)
-            is_best = rank1 > best_rank1
-            if is_best: best_rank1 = rank1
-
-            if use_gpu:
-                state_dict = model.module.state_dict()
-            else:
-                state_dict = model.state_dict()
-            save_checkpoint({
-                'state_dict': state_dict,
-                'rank1': rank1,
-                'epoch': epoch,
-            }, is_best, osp.join(args.save_dir, 'checkpoint_ep' + str(epoch+1) + '.pth.tar'))
-
-    elapsed = round(time.time() - start_time)
-    elapsed = str(datetime.timedelta(seconds=elapsed))
-    print("Finished. Total elapsed time (h:m:s): {}".format(elapsed))
+    return
 
 def train(model, criterion_xent, criterion_htri, optimizer, trainloader, use_gpu):
     model.train()
@@ -221,37 +195,48 @@ def train(model, criterion_xent, criterion_htri, optimizer, trainloader, use_gpu
 def test(model, queryloader, galleryloader, pool, use_gpu, ranks=[1, 5, 10, 20]):
     model.eval()
 
-    qf, q_pids, q_camids = [], [], []
-    for batch_idx, (imgs, pids, camids) in enumerate(queryloader):
-        if use_gpu:
-            imgs = imgs.cuda()
-        imgs = Variable(imgs, volatile=True)
-        # b=1, n=number of clips, s=16
-        b, n, s, c, h, w = imgs.size()
-        assert(b==1)
-        imgs = imgs.view(b*n, s, c, h, w)
-        features = model(imgs)
-        features = features.view(n, -1)
-        features = torch.mean(features, 0)
-        features = features.data.cpu()
-        qf.append(features)
-        q_pids.extend(pids)
-        q_camids.extend(camids)
-    qf = torch.stack(qf)
-    q_pids = np.asarray(q_pids)
-    q_camids = np.asarray(q_camids)
+    # for batch_idx, imgs in enumerate(queryloader):
+    #     print(batch_idx)
+    with torch.no_grad():
+        qf, q_pids, q_camids = [], [], []
+        # from IPython import embed
+        # embed()
+        for batch_idx, imgs in enumerate(queryloader):
+            if use_gpu:
+                imgs = imgs.cuda()
+            # embed()
+            imgs = imgs[0]
+            # imgs = Variable(imgs, volatile=True)
+            # # b=1, n=number of clips, s=16
+            # b, n, s, c, h, w = imgs.size()
+            # assert(b==1)
+            # imgs = imgs.view(b*n, s, c, h, w)
+            features = model(imgs)
+            n = 4
+            features = features.view(n, -1)
+            features = torch.mean(features, 0)
+            features = features.data.cpu()
+            qf.append(features)
+            # q_pids.extend(pids)
+            # q_camids.extend(camids)
+        qf = torch.stack(qf)
 
-    print("Extracted features for query set, obtained {}-by-{} matrix".format(qf.size(0), qf.size(1)))
+        # q_pids = np.asarray(q_pids)
+        # q_camids = np.asarray(q_camids)
+
+        print("Extracted features for query set, obtained {}-by-{} matrix".format(qf.size(0), qf.size(1)))
 
     gf, g_pids, g_camids = [], [], []
-    for batch_idx, (imgs, pids, camids) in enumerate(galleryloader):
+    for batch_idx, imgs in enumerate(galleryloader):
         if use_gpu:
             imgs = imgs.cuda()
-        imgs = Variable(imgs, volatile=True)
-        b, n, s, c, h, w = imgs.size()
-        imgs = imgs.view(b*n, s , c, h, w)
-        assert(b==1)
+        imgs = imgs[0]
+        # imgs = Variable(imgs, volatile=True)
+        # b, n, s, c, h, w = imgs.size()
+        # imgs = imgs.view(b*n, s , c, h, w)
+        # assert(b==1)
         features = model(imgs)
+        n = 4
         features = features.view(n, -1)
         if pool == 'avg':
             features = torch.mean(features, 0)
@@ -259,11 +244,11 @@ def test(model, queryloader, galleryloader, pool, use_gpu, ranks=[1, 5, 10, 20])
             features, _ = torch.max(features, 0)
         features = features.data.cpu()
         gf.append(features)
-        g_pids.extend(pids)
-        g_camids.extend(camids)
+        # g_pids.extend(pids)
+        # g_camids.extend(camids)
     gf = torch.stack(gf)
-    g_pids = np.asarray(g_pids)
-    g_camids = np.asarray(g_camids)
+    # g_pids = np.asarray(g_pids)
+    # g_camids = np.asarray(g_camids)
 
     print("Extracted features for gallery set, obtained {}-by-{} matrix".format(gf.size(0), gf.size(1)))
     print("Computing distance matrix")
@@ -273,18 +258,47 @@ def test(model, queryloader, galleryloader, pool, use_gpu, ranks=[1, 5, 10, 20])
               torch.pow(gf, 2).sum(dim=1, keepdim=True).expand(n, m).t()
     distmat.addmm_(1, -2, qf, gf.t())
     distmat = distmat.numpy()
+    # print("---distmat---\n",distmat)
+
+    # 使用local_distmat
+    # from util.distance import low_memory_local_dist
+    # lqf = lqf.permute(0, 2, 1)
+    # lgf = lgf.permute(0, 2, 1)
+    # local_distmat = low_memory_local_dist(lqf.numpy(), lgf.numpy(), aligned=True)
+
+    # 归一化
+    distmat = 1 - distmat / 10
+
+    # 用于测试
+    mm, nn = distmat.shape[0], distmat.shape[1]
+    print("mm is ",mm)
+    print("nn is ",nn)
+    min = [1, 1, 1, 1, 1, 1, 1, 1]  # min数组的大小应该等于mm
+    num = 0
+    for i in range(mm):
+        for j in range(nn):
+            if distmat[i][j] < min[i]:
+                min[i] = distmat[i][j]
+        # 这里的判定两object是否为同一object的distance阈值为经验值，还需进一步优化
+        if min[i] < 3.5:
+            # print("min[i] is",min[i])
+            num += 1
+    print('各图像之间的相似度为：\n', 1 - distmat)
+    print('经多视角识别后的person_num为:', num)
 
     print("Computing CMC and mAP")
-    cmc, mAP = evaluate(distmat, q_pids, g_pids, q_camids, g_camids)
+    # cmc, mAP = evaluate(distmat, q_pids, g_pids, q_camids, g_camids)
 
-    print("Results ----------")
-    print("mAP: {:.1%}".format(mAP))
-    print("CMC curve")
-    for r in ranks:
-        print("Rank-{:<3}: {:.1%}".format(r, cmc[r-1]))
-    print("------------------")
+    # print("Results ----------")
+    # print("mAP: {:.1%}".format(mAP))
+    # print("CMC curve")
+    # for r in ranks:
+    #     print("Rank-{:<3}: {:.1%}".format(r, cmc[r-1]))
+    # print("------------------")
 
-    return cmc[0]
+    # return cmc[0]
+    print("------test ending------")
+    return 0
 
 if __name__ == '__main__':
     main()
