@@ -7,6 +7,8 @@ import torch
 from torch.utils.data import Dataset
 import random
 
+from IPython import embed
+
 def read_image(img_path):
     """Keep reading image until succeed.
     This can avoid IOError incurred by heavy IO process."""
@@ -37,6 +39,8 @@ class VideoDataset(Dataset):
         return len(self.dataset)
 
     def __getitem__(self, index):
+        # from IPython import embed
+        # embed()
         img_paths, pid, camid = self.dataset[index]
         num = len(img_paths)
         if self.sample == 'random':
@@ -50,12 +54,15 @@ class VideoDataset(Dataset):
             begin_index = random.randint(0, rand_end)
             end_index = min(begin_index + self.seq_len, len(frame_indices))
 
+            # from IPython import embed
+            # embed()
+
             indices = frame_indices[begin_index:end_index]
 
             for index in indices:
                 if len(indices) >= self.seq_len:
                     break
-                indices.append(index)
+                indices.append(index)# 问题出在person04的图像数量太少了
             indices=np.array(indices)
             imgs = []
             for index in indices:
@@ -68,6 +75,7 @@ class VideoDataset(Dataset):
                 imgs.append(img)
             imgs = torch.cat(imgs, dim=0)
             #imgs=imgs.permute(1,0,2,3)
+
             return imgs, pid, camid
 
         elif self.sample == 'dense':
@@ -82,6 +90,7 @@ class VideoDataset(Dataset):
                 indices_list.append(frame_indices[cur_index:cur_index+self.seq_len])
                 cur_index+=self.seq_len
             last_seq=frame_indices[cur_index:]
+            embed()
             for index in last_seq:
                 if len(last_seq) >= self.seq_len:
                     break
@@ -102,6 +111,10 @@ class VideoDataset(Dataset):
                 #imgs=imgs.permute(1,0,2,3)
                 imgs_list.append(imgs)
             imgs_array = torch.stack(imgs_list)
+
+            # from IPython import embed
+            # embed()
+
             return imgs_array, pid, camid
 
         else:
