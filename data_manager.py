@@ -12,6 +12,7 @@ import numpy as np
 
 from utils import mkdir_if_missing, write_json, read_json
 
+from IPython import embed
 """Dataset classes"""
 
 
@@ -182,43 +183,56 @@ class iLIDSVID(object):
         splits = read_json(self.split_path)
         if split_id >= len(splits):
             raise ValueError("split_id exceeds range, received {}, but expected between 0 and {}".format(split_id, len(splits)-1))
+        ### 这里打断点，查一下splits[0]是什么
         split = splits[split_id]
+        # embed()
         train_dirs, test_dirs = split['train'], split['test']
-        print("# train identites: {}, # test identites {}".format(len(train_dirs), len(test_dirs)))
-
-        train, num_train_tracklets, num_train_pids, num_imgs_train = \
-          self._process_data(train_dirs, cam1=True, cam2=True)
+        # train_dirs = split['train']
+        ### 手动添加test_dirs
+        test_dirs = ["person0",
+            "person1",
+            "person2",
+            "person3",
+            "person4"]
+        # train_dirs = test_dirs
+        # embed()
+        # print("# train identites: {}, # test identites {}".format(len(train_dirs), len(test_dirs)))
+        ### 问题出在train上
+        ### 这个train应该用不到吧？
+        # train, num_train_tracklets, num_train_pids, num_imgs_train = \
+        #   self._process_data(train_dirs, cam1=True, cam2=True)
         query, num_query_tracklets, num_query_pids, num_imgs_query = \
           self._process_data(test_dirs, cam1=True, cam2=False)
         gallery, num_gallery_tracklets, num_gallery_pids, num_imgs_gallery = \
           self._process_data(test_dirs, cam1=False, cam2=True)
 
-        num_imgs_per_tracklet = num_imgs_train + num_imgs_query + num_imgs_gallery
-        min_num = np.min(num_imgs_per_tracklet)
-        max_num = np.max(num_imgs_per_tracklet)
-        avg_num = np.mean(num_imgs_per_tracklet)
+        # num_imgs_per_tracklet = num_imgs_train + num_imgs_query + num_imgs_gallery
+        # min_num = np.min(num_imgs_per_tracklet)
+        # max_num = np.max(num_imgs_per_tracklet)
+        # avg_num = np.mean(num_imgs_per_tracklet)
 
-        num_total_pids = num_train_pids + num_query_pids
-        num_total_tracklets = num_train_tracklets + num_query_tracklets + num_gallery_tracklets
+        # num_total_pids = num_train_pids + num_query_pids
+        # num_total_tracklets = num_train_tracklets + num_query_tracklets + num_gallery_tracklets
 
         print("=> iLIDS-VID loaded")
         print("Dataset statistics:")
         print("  ------------------------------")
         print("  subset   | # ids | # tracklets")
         print("  ------------------------------")
-        print("  train    | {:5d} | {:8d}".format(num_train_pids, num_train_tracklets))
+        # print("  train    | {:5d} | {:8d}".format(num_train_pids, num_train_tracklets))
         print("  query    | {:5d} | {:8d}".format(num_query_pids, num_query_tracklets))
         print("  gallery  | {:5d} | {:8d}".format(num_gallery_pids, num_gallery_tracklets))
         print("  ------------------------------")
-        print("  total    | {:5d} | {:8d}".format(num_total_pids, num_total_tracklets))
-        print("  number of images per tracklet: {} ~ {}, average {:.1f}".format(min_num, max_num, avg_num))
+        # print("  total    | {:5d} | {:8d}".format(num_total_pids, num_total_tracklets))
+        # print("  number of images per tracklet: {} ~ {}, average {:.1f}".format(min_num, max_num, avg_num))
         print("  ------------------------------")
 
-        self.train = train
+        ### 这条语句传递train
+        # self.train = train
         self.query = query
         self.gallery = gallery
 
-        self.num_train_pids = num_train_pids
+        # self.num_train_pids = num_train_pids
         self.num_query_pids = num_query_pids
         self.num_gallery_pids = num_gallery_pids
 
@@ -290,17 +304,21 @@ class iLIDSVID(object):
         print("Splits created")
 
     def _process_data(self, dirnames, cam1=True, cam2=True):
+        ### ？？？这里的dirnames!=实参test_dirs
+        # embed()
         tracklets = []
         num_imgs_per_tracklet = []
         dirname2pid = {dirname:i for i, dirname in enumerate(dirnames)}
-        
+
         for dirname in dirnames:
+            # embed()
             if cam1:
                 person_dir = osp.join(self.cam_1_path, dirname)
                 img_names = glob.glob(osp.join(person_dir, '*.png'))
+                # embed()
                 assert len(img_names) > 0
                 img_names = tuple(img_names)
-                pid = dirname2pid[dirname]
+                pid = dirname2pid[dirname]  # 获取pid
                 tracklets.append((img_names, pid, 0))
                 num_imgs_per_tracklet.append(len(img_names))
 
